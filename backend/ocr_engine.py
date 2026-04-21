@@ -3,8 +3,15 @@ import numpy as np
 import easyocr
 import pymupdf  # For PDF processing
 
-# Vercel serverless runs on CPU, so keep OCR initialization CPU-safe.
-reader = easyocr.Reader(['en'], gpu=False)
+_reader = None
+
+def get_reader():
+    """Initialize EasyOCR only when OCR is actually requested."""
+    global _reader
+    if _reader is None:
+        # Keep OCR initialization CPU-safe for hosted environments.
+        _reader = easyocr.Reader(['en'], gpu=False)
+    return _reader
 
 def preprocess_image(image_bytes: bytes) -> np.ndarray:
     """Applies preprocessing to improve OCR accuracy."""
@@ -34,7 +41,7 @@ def preprocess_image(image_bytes: bytes) -> np.ndarray:
 def extract_text_from_image(image_bytes: bytes) -> str:
     """Extracts raw text from an image byte array."""
     processed_img = preprocess_image(image_bytes)
-    result = reader.readtext(processed_img, detail=0)
+    result = get_reader().readtext(processed_img, detail=0)
     return "\n".join(result)
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
