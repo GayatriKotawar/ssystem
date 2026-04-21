@@ -1,8 +1,11 @@
 import axios from 'axios';
 
-// The FastAPI backend runs on 8000 by default (uvicorn)
+const isLocalDevelopment =
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1';
+
 const api = axios.create({
-  baseURL: 'http://localhost:8000/api',
+  baseURL: isLocalDevelopment ? 'http://localhost:8000/api' : '/api',
 });
 
 // Since we're not using JWT right now, we can pass user ID if needed or let components handle auth state
