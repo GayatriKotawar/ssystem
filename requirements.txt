@@ -1,0 +1,9 @@
+streamlit
+bcrypt
+easyocr
+google-genai
+opencv-python
+pandas
+pillow
+python-dotenv
+pymupdf
