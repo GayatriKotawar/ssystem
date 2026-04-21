@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { Upload as UploadIcon, File, CheckCircle, AlertCircle, Loader } from 'lucide-react';
-import api from '../api';
+import api, { getApiErrorMessage } from '../api';
 
 export default function Upload({ user }) {
   const [file, setFile] = useState(null);
@@ -40,7 +40,7 @@ export default function Upload({ user }) {
       });
       setResult(response.data);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to process document');
+      setError(getApiErrorMessage(err, 'Failed to process document'));
     } finally {
       setLoading(false);
     }

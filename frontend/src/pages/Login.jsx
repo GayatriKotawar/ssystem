@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { FileText, ArrowRight, Mail, Lock } from 'lucide-react';
-import api from '../api';
+import api, { getApiErrorMessage } from '../api';
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState('');
@@ -20,7 +20,7 @@ export default function Login({ onLogin }) {
       onLogin(response.data);
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Invalid email or password');
+      setError(getApiErrorMessage(err, 'Invalid email or password'));
     } finally {
       setLoading(false);
     }

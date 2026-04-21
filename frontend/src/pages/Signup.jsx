@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { FileText, ArrowRight, Mail, Lock, User } from 'lucide-react';
-import api from '../api';
+import api, { getApiErrorMessage } from '../api';
 
 export default function Signup() {
   const [name, setName] = useState('');
@@ -20,7 +20,7 @@ export default function Signup() {
       await api.post('/auth/signup', { name, email, password });
       navigate('/login');
     } catch (err) {
-      setError(err.response?.data?.detail || 'Registration failed. Email might exist.');
+      setError(getApiErrorMessage(err, 'Registration failed.'));
     } finally {
       setLoading(false);
     }
