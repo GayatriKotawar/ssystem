@@ -1,0 +1,12 @@
+fastapi
+bcrypt
+easyocr
+google-genai
+numpy
+opencv-python
+pandas
+pillow
+python-dotenv
+python-multipart
+pymupdf
+uvicorn
