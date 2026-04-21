@@ -4,6 +4,10 @@ SmartDMS is an AI-powered document management platform that automatically reads,
 Instead of manually entering data or managing scattered files, users can simply upload a document and the system will intelligently process it using OCR and AI to extract key information like names, amounts, dates, and expiry details. The extracted data is then structured, categorized, and stored securely, while also generating useful insights such as expense summaries and upcoming alerts.
 The platform combines modern web technologies with artificial intelligence to create a seamless document automation workflow.
 
+Deployment Note
+
+Deploy the React frontend to Netlify and deploy the FastAPI backend separately on a Python-friendly platform such as Render, Railway, or Vercel. In Netlify, set `VITE_API_BASE_URL` to your backend URL including the `/api` suffix, for example `https://your-backend.example.com/api`.
+
 Key Features
 AI Document Understanding
 
