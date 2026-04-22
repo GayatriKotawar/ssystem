@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import easyocr
 import pymupdf  # For PDF processing
 
 _reader = None
@@ -9,6 +8,8 @@ def get_reader():
     """Initialize EasyOCR only when OCR is actually requested."""
     global _reader
     if _reader is None:
+        import easyocr
+
         # Keep OCR initialization CPU-safe for hosted environments.
         _reader = easyocr.Reader(['en'], gpu=False)
     return _reader

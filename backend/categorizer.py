@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-client = genai.Client()
+api_key = os.getenv("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key) if api_key else None
 
 CATEGORIES = [
     "Bills",
@@ -19,6 +20,9 @@ CATEGORIES = [
 
 def categorize_document(ocr_text: str, extracted_json: dict = None) -> str:
     """Assigns the document to one of the predefined categories."""
+    if not client:
+        print("Categorization disabled - no API key configured")
+        return "Others"
     
     # If the ai_extractor already gave us a category, we could use that,
     # but the instructions specifically separate AI Auto Categorization.

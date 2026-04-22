@@ -1,5 +1,4 @@
 import sqlite3
-import pandas as pd
 from datetime import datetime
 import os
 import json
@@ -94,6 +93,8 @@ def save_document(user_id, file_name, file_type, document_category, extracted_da
 
 def get_user_documents(user_id):
     """Retrieves all documents for a specific user as a DataFrame."""
+    import pandas as pd
+
     conn = get_db_connection()
     query = "SELECT * FROM documents WHERE user_id = ? ORDER BY upload_date DESC"
     df = pd.read_sql_query(query, conn, params=(user_id,))

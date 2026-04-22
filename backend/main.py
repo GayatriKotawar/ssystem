@@ -2,14 +2,16 @@ from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, F
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 from pydantic import BaseModel
-import json
 
 from auth import hash_password, check_password
-from database import get_user_by_email, create_user, save_document, get_user_documents
-from workflow import process_upload
-from utils.alerts import get_user_alerts
+from database import get_user_by_email, create_user, save_document, get_user_documents, init_db
 
 app = FastAPI(title="SmartDMS API")
+
+
+@app.on_event("startup")
+def startup():
+    init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -58,6 +60,8 @@ class UploadDocRequest:
 
 @app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...), user_id: int = Form(...)):
+    from workflow import process_upload
+
     # process_upload expects a file-like object with a .getvalue() method and .name
     # FastAPI UploadFile has `.file` which is a SpooledTemporaryFile
     # We can create a mock struct returning the bytes
@@ -88,5 +92,7 @@ def get_documents(user_id: int):
 
 @app.get("/api/alerts/{user_id}")
 def get_alerts(user_id: int):
+    from utils.alerts import get_user_alerts
+
     alerts = get_user_alerts(user_id)
     return {"alerts": alerts}

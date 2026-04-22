@@ -1,8 +1,3 @@
-from ocr_engine import extract_text_from_image, extract_text_from_pdf
-from ai_extractor import extract_structured_data
-from categorizer import categorize_document
-from database import save_document
-
 def process_upload(uploaded_file, user_id: int):
     """
     Main pipeline:
@@ -17,6 +12,11 @@ def process_upload(uploaded_file, user_id: int):
     file_bytes = uploaded_file.getvalue()
     filename = uploaded_file.name
     file_extension = filename.split('.')[-1].lower()
+
+    from ai_extractor import extract_structured_data
+    from categorizer import categorize_document
+    from database import save_document
+    from ocr_engine import extract_text_from_image, extract_text_from_pdf
     
     # 1. & 2. OCR Extractions
     if file_extension in ['pdf']:
