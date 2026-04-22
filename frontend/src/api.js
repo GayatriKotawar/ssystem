@@ -4,7 +4,16 @@ const isLocalDevelopment =
   window.location.hostname === 'localhost' ||
   window.location.hostname === '127.0.0.1';
 
-const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+function normalizeApiBaseUrl(url) {
+  if (!url) {
+    return '';
+  }
+
+  const trimmedUrl = url.trim().replace(/\/+$/, '');
+  return trimmedUrl.endsWith('/api') ? trimmedUrl : `${trimmedUrl}/api`;
+}
+
+const configuredApiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 const localApiBaseUrl = 'http://localhost:8000/api';
 const productionApiBaseUrl = configuredApiBaseUrl || localApiBaseUrl;
 
