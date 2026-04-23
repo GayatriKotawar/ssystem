@@ -9,4 +9,4 @@ pillow
 python-dotenv
 python-multipart
 pymupdf
-uvicorn
+uvicorn[standard]
