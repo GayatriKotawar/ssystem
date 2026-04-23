@@ -7,3 +7,4 @@ python-dotenv
 python-multipart
 pymupdf
 uvicorn[standard]
+gunicorn
