@@ -14,10 +14,11 @@ function normalizeApiBaseUrl(url) {
 }
 
 const configuredApiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
-const localApiBaseUrl = 'http://localhost:8000/api';
-const productionApiBaseUrl = configuredApiBaseUrl || localApiBaseUrl;
 
-export const apiBaseUrl = isLocalDevelopment ? localApiBaseUrl : productionApiBaseUrl;
+// In local development, use a relative path so Vite's proxy handles the request.
+// This avoids CORS entirely since requests stay on the same origin.
+// In production, use the configured API base URL.
+export const apiBaseUrl = isLocalDevelopment ? '/api' : (configuredApiBaseUrl || '/api');
 
 const api = axios.create({
   baseURL: apiBaseUrl,
@@ -31,10 +32,10 @@ export function getApiErrorMessage(error, fallbackMessage) {
 
   if (!error?.response) {
     if (!isLocalDevelopment && !configuredApiBaseUrl) {
-      return 'Backend is not configured for this Netlify site. Set VITE_API_BASE_URL in Netlify environment variables.';
+      return 'Backend is not configured. Set VITE_API_BASE_URL in your environment variables.';
     }
 
-    return 'Cannot connect to the backend server. Check whether the API is deployed and VITE_API_BASE_URL is correct.';
+    return 'Cannot connect to the backend server. Make sure the FastAPI backend is running on port 8000.';
   }
 
   if (error.response.status === 404) {
@@ -42,7 +43,7 @@ export function getApiErrorMessage(error, fallbackMessage) {
   }
 
   if (error.response.status >= 500) {
-    return 'The backend server returned an internal error. Check the backend deployment logs.';
+    return 'The backend server returned an internal error. Check the backend logs.';
   }
 
   return fallbackMessage;

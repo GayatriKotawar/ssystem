@@ -1,21 +1,24 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from typing import Optional, List
 from pydantic import BaseModel
 
 from auth import hash_password, check_password
 from database import get_user_by_email, create_user, save_document, get_user_documents, init_db
 
-app = FastAPI(title="SmartDMS API")
-
-
-@app.on_event("startup")
-def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     init_db()
+    yield
+    # Shutdown (nothing needed)
+
+app = FastAPI(title="SmartDMS API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # For development
+    allow_origins=["*"],  # For development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

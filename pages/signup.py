@@ -1,7 +1,8 @@
 import streamlit as st
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 from auth import register_user
-
-st.set_page_config(page_title="Signup | SmartDMS", page_icon="🔐")
 
 st.title("Create an Account")
 st.markdown("Join SmartDMS to securely manage and analyze your documents.")

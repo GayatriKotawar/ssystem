@@ -1,7 +1,8 @@
 import streamlit as st
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'backend'))
 from auth import authenticate_user
-
-st.set_page_config(page_title="Login | SmartDMS", page_icon="🔑")
 
 st.title("Login to SmartDMS")
 st.markdown("Welcome back! Please login to access your smart document vault.")
