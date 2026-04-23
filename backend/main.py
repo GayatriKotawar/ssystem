@@ -57,34 +57,39 @@ def login(user: UserAuthMode):
     del user_data['password_hash']
     return user_data
 
-class UploadDocRequest:
-    # FastAPI handles UploadFile seamlessly without BaseModel
-    pass
-
 @app.post("/api/upload")
 async def upload_document(file: UploadFile = File(...), user_id: int = Form(...)):
+    import asyncio
+    from functools import partial
     from workflow import process_upload
 
-    # process_upload expects a file-like object with a .getvalue() method and .name
-    # FastAPI UploadFile has `.file` which is a SpooledTemporaryFile
-    # We can create a mock struct returning the bytes
-    class MockFile:
-        def __init__(self, filename, content):
-            self.name = filename
-            self.content = content
-        def getvalue(self):
-            return self.content
-
+    # Read file bytes asynchronously
     content = await file.read()
-    mock_file = MockFile(file.filename, content)
-    
+    filename = file.filename
+
+    # Run the CPU/IO-bound processing in a thread pool so the event loop stays free
+    class _FileAdapter:
+        """Thin adapter so workflow.py's process_upload can call .getvalue() and .name."""
+        def __init__(self, name, data):
+            self.name = name
+            self._data = data
+        def getvalue(self):
+            return self._data
+
+    adapter = _FileAdapter(filename, content)
+    loop = asyncio.get_event_loop()
+
     try:
-        results = process_upload(mock_file, user_id)
-        if "error" in results:
+        results = await loop.run_in_executor(None, partial(process_upload, adapter, user_id))
+        # Only treat "error" as a hard failure if there's nothing else useful returned
+        if results.get("error") and len(results) <= 2:
             raise HTTPException(status_code=400, detail=results["error"])
         return results
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/documents/{user_id}")
 def get_documents(user_id: int):

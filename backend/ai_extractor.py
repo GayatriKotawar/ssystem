@@ -1,92 +1,108 @@
 import os
 import json
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
+from typing import Optional, Any
 
 load_dotenv()
 
-# We need a fallback or clear error if API key is missing
-api_key = os.getenv("GEMINI_API_KEY") 
+api_key = os.getenv("GEMINI_API_KEY")
 if not api_key:
-    # For testing purposes, we'll initialize without API key and handle errors gracefully
     print("WARNING: GEMINI_API_KEY not found. Document processing will be disabled.")
     client = None
 else:
     client = genai.Client(api_key=api_key)
 
-from typing import Optional, Any
+# Use Flash-Lite: faster response times, lower latency, sufficient for extraction
+MODEL_ID = "gemini-2.0-flash-lite"
 
-def extract_structured_data(ocr_text: str, image_bytes: Optional[bytes] = None, mime_type: Optional[str] = None) -> dict:
-    """Uses Gemini 2.0 Flash Lite to extract structured data from OCR text."""
+VALID_CATEGORIES = ["Bills", "Medical", "Insurance", "Banking",
+                    "Education", "Legal", "Receipts", "Others"]
+
+def extract_structured_data(
+    ocr_text: str,
+    image_bytes: Optional[bytes] = None,
+    mime_type: Optional[str] = None,
+) -> dict:
+    """
+    Single Gemini call that extracts structured data AND classifies the document.
+    - If image_bytes provided → Gemini Vision reads image directly (no OCR needed).
+    - If only ocr_text provided → text-only extraction (fast for text PDFs).
+    """
     from datetime import datetime
     current_date = datetime.now().strftime("%Y-%m-%d")
-    
-    prompt = f"""
-    Extract structured information from this document.
-    Current System Date is: {current_date}. 
-    Return JSON only without Markdown formatting blocks (e.g., no ```json).
-    
-    Extract the following standard fields (only if available, otherwise omit them):
-    - name, date (YYYY-MM-DD), amount, due_date, policy_number, expiry_date, vendor, doctor_name, medicine, test_results, category
-    
-    IMPORTANT: You are highly encouraged to extract ANY AND ALL other relevant data points found in the document using concise, snake_case keys (e.g., patient_id, diagnosis, invoice_number, tax_amount). If the document is a prescription or medical report, vigorously extract symptoms, vitals, prescriptions, etc.
 
-    OCR Text (may contain errors, use the provided original image as the primary source of truth if available):
-    {ocr_text}
-    
-    Return pure JSON format. Example output:
-    {{
-      "name": "Rahul Sharma",
-      "date": "2025-02-12",
-      "amount": "2450",
-      "due_date": "",
-      "policy_number": "",
-      "expiry_date": "",
-      "vendor": "Apollo Pharmacy",
-      "doctor_name": "",
-      "medicine": "Paracetamol",
-      "test_results": "",
-      "category": "Medical"
-    }}
-    """
-    
+    valid_cats = ", ".join(VALID_CATEGORIES)
+
+    prompt = f"""You are a smart document analysis assistant. Today's date is {current_date}.
+
+Analyze the document {'image' if image_bytes else 'text'} below and return a SINGLE JSON object.
+
+REQUIRED fields (include even if empty string):
+- "category": one of [{valid_cats}]
+- "name": person's full name
+- "date": primary date in YYYY-MM-DD format
+- "amount": numeric amount (e.g. "1500.00"), empty string if none
+- "due_date": due/expiry date in YYYY-MM-DD format, empty if none
+- "vendor": company/hospital/institution name
+- "summary": one plain-English sentence summarizing the document
+
+OPTIONAL fields (only include if found in document):
+- "invoice_number", "policy_number", "doctor_name", "medicine",
+  "diagnosis", "test_results", "tax_amount", "discount", "patient_id",
+  "account_number", "bank_name", "course_name", "grade", "alert"
+
+{"Document text:" + chr(10) + ocr_text if ocr_text.strip() else ""}
+
+Return ONLY raw JSON. No markdown, no code blocks, no explanation."""
+
     if not client:
-        print("Document processing disabled - no API key configured")
-        return {"error": "API key not configured", "message": "Document processing is disabled"}
-    
+        return {"error": "API key not configured", "category": "Others",
+                "summary": "Document processing is disabled — no Gemini API key set."}
+
     try:
-        from google.genai import types
         contents: list[Any] = [prompt]
         if image_bytes and mime_type:
             contents.append(
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
             )
 
-        # Use gemini-2.5-flash as the latest standard flash logic model
-        print("Sending payload to Gemini 2.5 Flash...")
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model=MODEL_ID,
             contents=contents,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.1,     # Low temperature = deterministic, structured output
+                max_output_tokens=1024,
+            ),
         )
-        
-        # Clean potential markdown wrapping
+
         text = response.text.strip()
-        print(f"Gemini Raw Response: {text}")
-        
+
+        # Strip potential markdown fences just in case
         if text.startswith("```json"):
             text = text[7:]
         elif text.startswith("```"):
             text = text[3:]
-            
         if text.endswith("```"):
             text = text[:-3]
-            
-        return json.loads(text.strip())
-        
+
+        result = json.loads(text.strip())
+
+        # Normalize category
+        raw_cat = str(result.get("category", "")).strip()
+        if raw_cat not in VALID_CATEGORIES:
+            raw_cat = "Others"
+        result["category"] = raw_cat
+
+        return result
+
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error: {e} | Raw: {locals().get('text', '')}")
+        return {"category": "Others", "summary": "Could not parse AI response.", "error": str(e)}
     except Exception as e:
-        print(f"Error during Gemini extraction: {e}")
-        try:
-            print(f"Failed Response Text: {response.text}")
-        except:
-            pass
-        return {}
+        print(f"Gemini extraction error: {e}")
+        if "429" in str(e):
+            return {"category": "Others", "summary": "API rate limit hit. Please wait 60 seconds and try again.", "error": "quota_exceeded"}
+        return {"category": "Others", "summary": f"Processing error: {str(e)}", "error": str(e)}

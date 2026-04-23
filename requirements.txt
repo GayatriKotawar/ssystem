@@ -1,9 +1,6 @@
 fastapi
 bcrypt
-easyocr
 google-genai
-numpy
-opencv-python-headless
 pandas
 pillow
 python-dotenv
