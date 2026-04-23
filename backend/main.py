@@ -94,13 +94,51 @@ async def upload_document(file: UploadFile = File(...), user_id: int = Form(...)
 @app.get("/api/documents/{user_id}")
 def get_documents(user_id: int):
     df = get_user_documents(user_id)
-    # Convert DataFrame to list of dicts
     docs = df.to_dict(orient="records")
     return {"documents": docs}
+
+@app.post("/api/recategorize/{user_id}")
+def recategorize_documents(user_id: int):
+    """
+    Re-runs keyword-based categorization on all documents saved as 'Others'
+    for this user and updates the database. Useful to fix documents that were
+    miscategorized before the fix.
+    """
+    import json as _json
+    from ai_extractor import keyword_categorize
+    from database import get_db_connection
+
+    df = get_user_documents(user_id)
+    updated = 0
+    conn = get_db_connection()
+    c = conn.cursor()
+
+    for _, row in df.iterrows():
+        if row.get("document_category") != "Others":
+            continue
+        try:
+            data = _json.loads(row["extracted_data"]) if isinstance(row["extracted_data"], str) else row["extracted_data"]
+            text = " ".join(str(v) for v in data.values() if isinstance(v, str))
+        except Exception:
+            text = ""
+
+        new_cat = keyword_categorize(text) if text.strip() else "Others"
+        if new_cat != "Others":
+            updated_data = data.copy() if isinstance(data, dict) else {}
+            updated_data["category"] = new_cat
+            c.execute(
+                "UPDATE documents SET document_category=?, extracted_data=? WHERE id=?",
+                (new_cat, _json.dumps(updated_data), int(row["id"]))
+            )
+            updated += 1
+
+    conn.commit()
+    conn.close()
+    return {"message": f"Re-categorized {updated} document(s) from 'Others' to specific categories."}
 
 @app.get("/api/alerts/{user_id}")
 def get_alerts(user_id: int):
     from utils.alerts import get_user_alerts
-
     alerts = get_user_alerts(user_id)
     return {"alerts": alerts}
+

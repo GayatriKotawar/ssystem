@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -14,11 +15,49 @@ if not api_key:
 else:
     client = genai.Client(api_key=api_key)
 
-# Use Flash-Lite: faster response times, lower latency, sufficient for extraction
-MODEL_ID = "gemini-2.0-flash-lite"
+# gemini-2.0-flash supports JSON mode; flash-lite does NOT — use flash
+MODEL_ID = "gemini-2.0-flash"
 
 VALID_CATEGORIES = ["Bills", "Medical", "Insurance", "Banking",
                     "Education", "Legal", "Receipts", "Others"]
+
+# ── Keyword fallback categorizer (no API needed) ───────────────────────────
+KEYWORD_MAP = {
+    "Medical":   ["hospital", "clinic", "doctor", "medicine", "prescription", "diagnosis",
+                  "patient", "blood", "test", "report", "health", "pharmacy", "mg", "tablet",
+                  "capsule", "injection", "lab", "pathology", "radiology", "x-ray", "scan",
+                  "discharge", "admitted", "ward", "opd", "ipd", "pulse", "bp", "sugar",
+                  "diabetes", "fever", "treatment", "therapy", "dosage", "symptoms"],
+    "Bills":     ["electricity", "water", "gas", "internet", "broadband", "telephone",
+                  "utility", "bill", "due date", "meter", "units", "kwh", "consumer no",
+                  "connection", "recharge", "mobile", "postpaid", "prepaid"],
+    "Insurance": ["insurance", "policy", "premium", "insured", "nominee", "coverage",
+                  "claim", "sum assured", "maturity", "lic", "irda", "agent", "beneficiary"],
+    "Banking":   ["bank", "account", "transaction", "balance", "debit", "credit", "ifsc",
+                  "cheque", "neft", "rtgs", "upi", "statement", "passbook", "loan", "emi",
+                  "interest", "savings", "current", "fixed deposit", "fd", "atm"],
+    "Education": ["school", "college", "university", "student", "marks", "grade", "result",
+                  "certificate", "degree", "diploma", "course", "semester", "examination",
+                  "roll number", "admit card", "hall ticket", "scholarship", "fees"],
+    "Legal":     ["agreement", "contract", "deed", "affidavit", "court", "legal", "advocate",
+                  "lawyer", "notary", "stamp duty", "registration", "power of attorney",
+                  "terms and conditions", "clause", "jurisdiction", "plaintiff", "defendant"],
+    "Receipts":  ["receipt", "invoice", "order", "purchase", "payment", "paid", "total",
+                  "subtotal", "gst", "vat", "tax", "cgst", "sgst", "igst", "hsn",
+                  "item", "qty", "quantity", "rate", "discount", "cash", "upi", "card"],
+}
+
+def keyword_categorize(text: str) -> str:
+    """Fast keyword-based fallback. Returns best matching category or 'Others'."""
+    lower = text.lower()
+    scores = {cat: 0 for cat in KEYWORD_MAP}
+    for cat, keywords in KEYWORD_MAP.items():
+        for kw in keywords:
+            if kw in lower:
+                scores[cat] += 1
+    best_cat = max(scores, key=scores.get)
+    return best_cat if scores[best_cat] > 0 else "Others"
+
 
 def extract_structured_data(
     ocr_text: str,
@@ -26,40 +65,54 @@ def extract_structured_data(
     mime_type: Optional[str] = None,
 ) -> dict:
     """
-    Single Gemini call that extracts structured data AND classifies the document.
-    - If image_bytes provided → Gemini Vision reads image directly (no OCR needed).
-    - If only ocr_text provided → text-only extraction (fast for text PDFs).
+    Single Gemini call — extracts structured data AND classifies the document.
+    Falls back to keyword-based categorization if Gemini fails or misclassifies.
     """
     from datetime import datetime
     current_date = datetime.now().strftime("%Y-%m-%d")
-
     valid_cats = ", ".join(VALID_CATEGORIES)
 
     prompt = f"""You are a smart document analysis assistant. Today's date is {current_date}.
 
-Analyze the document {'image' if image_bytes else 'text'} below and return a SINGLE JSON object.
+Analyze this document carefully and return a single JSON object.
 
-REQUIRED fields (include even if empty string):
-- "category": one of [{valid_cats}]
-- "name": person's full name
-- "date": primary date in YYYY-MM-DD format
-- "amount": numeric amount (e.g. "1500.00"), empty string if none
-- "due_date": due/expiry date in YYYY-MM-DD format, empty if none
-- "vendor": company/hospital/institution name
-- "summary": one plain-English sentence summarizing the document
+CATEGORY RULES — pick exactly one:
+- "Medical"   → Any hospital bill, prescription, lab report, health record, discharge summary
+- "Bills"     → Electricity, water, gas, internet, telephone, utility bills
+- "Insurance" → Insurance policy, premium notice, LIC document, claim form
+- "Banking"   → Bank statement, passbook, cheque, loan document, FD certificate
+- "Education" → School/college fee receipt, mark sheet, certificate, admit card
+- "Legal"     → Agreement, contract, affidavit, deed, legal notice
+- "Receipts"  → Shopping receipt, invoice, purchase order, GST bill, payment receipt
+- "Others"    → Only if the document truly doesn't fit any above category
 
-OPTIONAL fields (only include if found in document):
-- "invoice_number", "policy_number", "doctor_name", "medicine",
-  "diagnosis", "test_results", "tax_amount", "discount", "patient_id",
-  "account_number", "bank_name", "course_name", "grade", "alert"
+REQUIRED JSON fields (always include, use empty string if not found):
+{{
+  "category": "<one of: {valid_cats}>",
+  "name": "<person's full name found in document>",
+  "date": "<primary date in YYYY-MM-DD format>",
+  "amount": "<total amount as number string, e.g. '1500.00', empty if none>",
+  "due_date": "<due or expiry date in YYYY-MM-DD, empty if none>",
+  "vendor": "<company, hospital, school, shop name>",
+  "summary": "<one sentence describing what this document is>"
+}}
 
-{"Document text:" + chr(10) + ocr_text if ocr_text.strip() else ""}
+OPTIONAL fields — add only if found:
+"invoice_number", "policy_number", "doctor_name", "medicine", "diagnosis",
+"test_results", "tax_amount", "account_number", "bank_name", "course_name", "grade"
 
-Return ONLY raw JSON. No markdown, no code blocks, no explanation."""
+{("Document text:" + chr(10) + ocr_text.strip()) if ocr_text.strip() else ""}
 
+IMPORTANT: Return ONLY the raw JSON object. No markdown, no code fences, no extra text."""
+
+    # ── No API key: keyword fallback only ─────────────────────────────────
     if not client:
-        return {"error": "API key not configured", "category": "Others",
-                "summary": "Document processing is disabled — no Gemini API key set."}
+        cat = keyword_categorize(ocr_text) if ocr_text else "Others"
+        return {
+            "category": cat,
+            "summary": "Document processed using keyword matching (no API key configured).",
+            "name": "", "date": "", "amount": "", "due_date": "", "vendor": "",
+        }
 
     try:
         contents: list[Any] = [prompt]
@@ -72,37 +125,65 @@ Return ONLY raw JSON. No markdown, no code blocks, no explanation."""
             model=MODEL_ID,
             contents=contents,
             config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                temperature=0.1,     # Low temperature = deterministic, structured output
+                temperature=0.1,
                 max_output_tokens=1024,
             ),
         )
 
         text = response.text.strip()
+        print(f"[Gemini raw] {text[:200]}")
 
-        # Strip potential markdown fences just in case
-        if text.startswith("```json"):
-            text = text[7:]
-        elif text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
+        # Strip markdown fences if present
+        text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE)
+        text = re.sub(r'\s*```$', '', text)
 
-        result = json.loads(text.strip())
+        # Extract first JSON object
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if not match:
+            raise ValueError(f"No JSON object found in response: {text[:200]}")
 
-        # Normalize category
+        result = json.loads(match.group(0))
+
+        # Validate + normalise category
         raw_cat = str(result.get("category", "")).strip()
-        if raw_cat not in VALID_CATEGORIES:
-            raw_cat = "Others"
-        result["category"] = raw_cat
+        # Case-insensitive match
+        matched = next((c for c in VALID_CATEGORIES if c.lower() == raw_cat.lower()), None)
+        if not matched:
+            # Keyword fallback on the OCR text / summary
+            fallback_text = ocr_text or str(result.get("summary", ""))
+            matched = keyword_categorize(fallback_text)
+        result["category"] = matched
+
+        # Ensure required fields exist
+        for field in ("name", "date", "amount", "due_date", "vendor", "summary"):
+            result.setdefault(field, "")
 
         return result
 
     except json.JSONDecodeError as e:
-        print(f"JSON parse error: {e} | Raw: {locals().get('text', '')}")
-        return {"category": "Others", "summary": "Could not parse AI response.", "error": str(e)}
+        print(f"[ai_extractor] JSON parse error: {e}")
+        # Keyword fallback
+        cat = keyword_categorize(ocr_text) if ocr_text else "Others"
+        return {
+            "category": cat,
+            "summary": "AI extraction partially failed — categorized by keywords.",
+            "name": "", "date": "", "amount": "", "due_date": "", "vendor": "",
+            "error": str(e),
+        }
     except Exception as e:
-        print(f"Gemini extraction error: {e}")
+        print(f"[ai_extractor] Gemini error: {e}")
         if "429" in str(e):
-            return {"category": "Others", "summary": "API rate limit hit. Please wait 60 seconds and try again.", "error": "quota_exceeded"}
-        return {"category": "Others", "summary": f"Processing error: {str(e)}", "error": str(e)}
+            cat = keyword_categorize(ocr_text) if ocr_text else "Others"
+            return {
+                "category": cat,
+                "summary": "API rate limit hit — categorized by keywords.",
+                "name": "", "date": "", "amount": "", "due_date": "", "vendor": "",
+                "error": "quota_exceeded",
+            }
+        cat = keyword_categorize(ocr_text) if ocr_text else "Others"
+        return {
+            "category": cat,
+            "summary": f"Processing error: {str(e)}",
+            "name": "", "date": "", "amount": "", "due_date": "", "vendor": "",
+            "error": str(e),
+        }
